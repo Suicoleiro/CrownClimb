@@ -46,15 +46,6 @@ jobs:
           find project/Il2CppOutputProject/IL2CPP/build -type f -exec chmod +x {} + 2>/dev/null || true
           find project/Frameworks -type f ! -name "*.*" -exec chmod +x {} + 2>/dev/null || true
 
-      - name: Archive (unsigned; the export below signs it for the App Store)
-        run: |
-          set -o pipefail
-          cd project
-          xcodebuild archive -project Unity-iPhone.xcodeproj -scheme Unity-iPhone -configuration Release \
-            -destination "generic/platform=iOS" -archivePath "$RUNNER_TEMP/CrownClimb.xcarchive" \
-            DEVELOPMENT_TEAM=${{ secrets.APPLE_TEAM_ID }} \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" | tail -300
-
       - name: Install the signing certificate and profile
         env:
           DIST_CERT_P12: ${{ secrets.DIST_CERT_P12 }}
@@ -71,7 +62,7 @@ jobs:
           rm "$RUNNER_TEMP/dist.p12"
           security set-key-partition-list -S apple-tool:,apple: -k "$KCPW" "$KC" > /dev/null
           security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
-          security find-identity -v -p codesigning "$KC"
+          security find-identity -v -p codesigning "$KC" | tail -1      # only the count: the public log must not show names
           printf '%s' "$APPSTORE_PROFILE" | base64 --decode > "$RUNNER_TEMP/app.mobileprovision"
           security cms -D -i "$RUNNER_TEMP/app.mobileprovision" > "$RUNNER_TEMP/profile.plist"
           UUID=$(plutil -extract UUID raw "$RUNNER_TEMP/profile.plist")
@@ -81,7 +72,41 @@ jobs:
             cp "$RUNNER_TEMP/app.mobileprovision" "$d/$UUID.mobileprovision"
           done
           echo "PROFILE_NAME=$NAME" >> "$GITHUB_ENV"
-          echo "profile: $NAME"
+          echo "PROFILE_UUID=$UUID" >> "$GITHUB_ENV"
+
+      - name: Archive (signed with the App Store certificate and profile)
+        env:
+          TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -o pipefail
+          cd project
+          # only the app itself gets the profile; Unity's frameworks are signed when they are embedded into it
+          ruby -e '
+            require "xcodeproj"
+            p = Xcodeproj::Project.open("Unity-iPhone.xcodeproj")
+            p.targets.each do |t|
+              t.build_configurations.each do |c|
+                s = c.build_settings
+                s["DEVELOPMENT_TEAM"] = ENV["TEAM"]
+                s["CODE_SIGN_STYLE"] = "Manual"
+                if t.name == "Unity-iPhone"
+                  s["CODE_SIGN_IDENTITY"] = "Apple Distribution"
+                  s["CODE_SIGN_IDENTITY[sdk=iphoneos*]"] = "Apple Distribution"
+                  s["PROVISIONING_PROFILE_SPECIFIER"] = ENV["PROFILE_NAME"]
+                  s["PROVISIONING_PROFILE"] = ENV["PROFILE_UUID"]
+                else
+                  s["CODE_SIGN_IDENTITY"] = ""
+                  s["CODE_SIGN_IDENTITY[sdk=iphoneos*]"] = ""
+                  s["PROVISIONING_PROFILE_SPECIFIER"] = ""
+                  s["PROVISIONING_PROFILE"] = ""
+                end
+              end
+            end
+            p.save
+            puts "signing settings written for #{p.targets.map(&:name).join(", ")}"
+          '
+          xcodebuild archive -project Unity-iPhone.xcodeproj -scheme Unity-iPhone -configuration Release \
+            -destination "generic/platform=iOS" -archivePath "$RUNNER_TEMP/CrownClimb.xcarchive" | tail -300
 
       - name: Sign for the App Store
         run: |
