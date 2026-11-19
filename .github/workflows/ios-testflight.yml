@@ -7,7 +7,8 @@
 #   ASC_KEY_ID            App Store Connect API key id
 #   ASC_ISSUER_ID         App Store Connect API issuer id
 #   ASC_KEY_P8            the contents of the AuthKey_<id>.p8 file
-# Signing is automatic: Xcode makes the distribution certificate and profile itself through the API key.
+#   DIST_CERT_P12, DIST_CERT_PASSWORD, APPSTORE_PROFILE   made once by tools/ios/apple_signing.py
+# The archive is built unsigned, then signed with that certificate and profile and uploaded with altool.
 name: iOS TestFlight
 
 on:
@@ -54,34 +55,70 @@ jobs:
             DEVELOPMENT_TEAM=${{ secrets.APPLE_TEAM_ID }} \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" | tail -300
 
-      - name: Upload to TestFlight
+      - name: Install the signing certificate and profile
         env:
-          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          DIST_CERT_P12: ${{ secrets.DIST_CERT_P12 }}
+          DIST_CERT_PASSWORD: ${{ secrets.DIST_CERT_PASSWORD }}
+          APPSTORE_PROFILE: ${{ secrets.APPSTORE_PROFILE }}
         run: |
-          set -o pipefail
-          mkdir -p ~/private_keys
-          printf '%s\n' "$ASC_KEY_P8" > ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
+          KC="$RUNNER_TEMP/signing.keychain-db"
+          KCPW=$(uuidgen)
+          security create-keychain -p "$KCPW" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KCPW" "$KC"
+          printf '%s' "$DIST_CERT_P12" | base64 --decode > "$RUNNER_TEMP/dist.p12"
+          security import "$RUNNER_TEMP/dist.p12" -P "$DIST_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KC"
+          rm "$RUNNER_TEMP/dist.p12"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KCPW" "$KC" > /dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$KC"
+          printf '%s' "$APPSTORE_PROFILE" | base64 --decode > "$RUNNER_TEMP/app.mobileprovision"
+          security cms -D -i "$RUNNER_TEMP/app.mobileprovision" > "$RUNNER_TEMP/profile.plist"
+          UUID=$(plutil -extract UUID raw "$RUNNER_TEMP/profile.plist")
+          NAME=$(plutil -extract Name raw "$RUNNER_TEMP/profile.plist")
+          for d in "$HOME/Library/MobileDevice/Provisioning Profiles" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+            mkdir -p "$d"
+            cp "$RUNNER_TEMP/app.mobileprovision" "$d/$UUID.mobileprovision"
+          done
+          echo "PROFILE_NAME=$NAME" >> "$GITHUB_ENV"
+          echo "profile: $NAME"
+
+      - name: Sign for the App Store
+        run: |
           cat > export.plist <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0"><dict>
             <key>method</key><string>app-store-connect</string>
-            <key>destination</key><string>upload</string>
+            <key>destination</key><string>export</string>
             <key>teamID</key><string>${{ secrets.APPLE_TEAM_ID }}</string>
-            <key>signingStyle</key><string>automatic</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>provisioningProfiles</key><dict>
+              <key>com.pioneer314.crownclimb</key><string>$PROFILE_NAME</string>
+            </dict>
             <key>uploadSymbols</key><true/>
             <key>manageAppVersionAndBuildNumber</key><false/>
           </dict></plist>
           EOF
           xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/CrownClimb.xcarchive" -exportOptionsPlist export.plist \
-            -exportPath "$RUNNER_TEMP/export" -allowProvisioningUpdates \
-            -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
-            -authenticationKeyID ${{ secrets.ASC_KEY_ID }} \
-            -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }}
+            -exportPath "$RUNNER_TEMP/export"
+          ls -la "$RUNNER_TEMP/export"
 
-      - name: Remove the signing key
+      - name: Upload to TestFlight
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          mkdir -p ~/private_keys
+          printf '%s\n' "$ASC_KEY_P8" > ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
+          xcrun altool --upload-app -t ios -f "$(ls "$RUNNER_TEMP"/export/*.ipa | head -1)" \
+            --apiKey ${{ secrets.ASC_KEY_ID }} --apiIssuer ${{ secrets.ASC_ISSUER_ID }} --output-format normal
+
+      - name: Remove the signing files
         if: always()
-        run: rm -rf ~/private_keys
+        run: |
+          rm -rf ~/private_keys
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
 
       - name: Delete the uploaded Xcode project (kept after a failure, for a re-run)
         if: success()
