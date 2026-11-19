@@ -51,6 +51,7 @@ jobs:
           DIST_CERT_P12: ${{ secrets.DIST_CERT_P12 }}
           DIST_CERT_PASSWORD: ${{ secrets.DIST_CERT_PASSWORD }}
           APPSTORE_PROFILE: ${{ secrets.APPSTORE_PROFILE }}
+          TEAM: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           KC="$RUNNER_TEMP/signing.keychain-db"
           KCPW=$(uuidgen)
@@ -73,6 +74,11 @@ jobs:
           done
           echo "PROFILE_NAME=$NAME" >> "$GITHUB_ENV"
           echo "PROFILE_UUID=$UUID" >> "$GITHUB_ENV"
+          # checks without printing names: where the profile is, and whether it belongs to the team
+          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+          PTEAM=$(plutil -extract TeamIdentifier.0 raw "$RUNNER_TEMP/profile.plist")
+          [ "$PTEAM" = "$TEAM" ] && echo "profile team matches" || echo "PROFILE TEAM DIFFERS"
+          plutil -extract Platform json -o - "$RUNNER_TEMP/profile.plist"; echo
 
       - name: Archive (signed with the App Store certificate and profile)
         env:
@@ -92,7 +98,7 @@ jobs:
                 if t.name == "Unity-iPhone"
                   s["CODE_SIGN_IDENTITY"] = "Apple Distribution"
                   s["CODE_SIGN_IDENTITY[sdk=iphoneos*]"] = "Apple Distribution"
-                  s["PROVISIONING_PROFILE_SPECIFIER"] = ENV["PROFILE_NAME"]
+                  s["PROVISIONING_PROFILE_SPECIFIER"] = ENV["PROFILE_UUID"]
                   s["PROVISIONING_PROFILE"] = ENV["PROFILE_UUID"]
                 else
                   s["CODE_SIGN_IDENTITY"] = ""
