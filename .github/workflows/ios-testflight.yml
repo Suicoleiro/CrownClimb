@@ -77,8 +77,7 @@ jobs:
           # checks without printing names: where the profile is, and whether it belongs to the team
           ls -la "$HOME/Library/MobileDevice/Provisioning Profiles" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
           PTEAM=$(plutil -extract TeamIdentifier.0 raw "$RUNNER_TEMP/profile.plist")
-          [ "$PTEAM" = "$TEAM" ] && echo "profile team matches" || echo "PROFILE TEAM DIFFERS"
-          plutil -extract Platform json -o - "$RUNNER_TEMP/profile.plist"; echo
+          if [ "$PTEAM" = "$TEAM" ]; then echo "profile team matches"; else echo "PROFILE TEAM DIFFERS from APPLE_TEAM_ID"; exit 1; fi
 
       - name: Archive (signed with the App Store certificate and profile)
         env:
