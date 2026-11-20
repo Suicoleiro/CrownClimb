@@ -23,14 +23,19 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-15
+    # Apple requires the iOS 27 SDK (Xcode 27) for uploads from April 2027 (ITMS-90725); GitHub has Xcode 27 only on
+    # its "xcode-27" Mac image (macos-15 / macos-26 stop at Xcode 26.x)
+    runs-on: xcode-27
     timeout-minutes: 120
     steps:
       - name: Newest Xcode
         run: |
-          XC=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          XC=$(ls -d /Applications/Xcode_*.app | grep -vi beta | sort -V | tail -1)
           sudo xcode-select -s "$XC"
           xcodebuild -version
+          SDK=$(xcrun --sdk iphoneos --show-sdk-version)
+          echo "iOS SDK $SDK"
+          if [ "${SDK%%.*}" -lt 27 ]; then echo "::warning::iOS SDK $SDK is older than 27: App Store uploads need SDK 27 from April 2027"; fi
 
       - name: Download the Xcode project
         env:
