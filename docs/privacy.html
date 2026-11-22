@@ -14,8 +14,9 @@
 
   <h2>In short</h2>
   <p>Crown Climb has no account, no advertising, no analytics and no tracking. Everything you enter and every ride you
-  finish stays on your device. Only when you join an event (riding together with friends) are your rider name and live
-  ride figures shared with the other riders of that event, and only for as long as the event lasts.</p>
+  finish stays on your device, with three exceptions you choose yourself: when you join an event, your rider name and live
+  ride figures go to the other riders of that event; when you agree to the world list, your best times are shown there;
+  when you connect Strava, your rides can be uploaded to your Strava account.</p>
 
   <h2>What is stored on your device</h2>
   <ul>
@@ -43,6 +44,22 @@
   We do not use these data for anything else and do not pass them on. As with any internet connection, Cloudflare
   processes your device's IP address to deliver the data; see the
   <a href="https://www.cloudflare.com/privacypolicy/">Cloudflare privacy policy</a>. If you never use events, nothing is sent.</p>
+
+  <h2>World list (online leaderboard)</h2>
+  <p>After your first finished ride the app asks whether your times may go on the world list. Only if you say yes, the app
+  sends your best time on a climb to our server (run on Cloudflare Workers) together with your rider name, your average
+  W/kg, the date and the course of the ride (time and distance, so that others can ride against it as a ghost). Everyone
+  using Crown Climb can see the list. Your app is identified only by a random key that never leaves your device in readable
+  form; the list contains no account, e-mail or device information. You can switch it off at any time on the TOP LIST page
+  and remove your time from a climb there.</p>
+
+  <h2>Strava</h2>
+  <p>If you connect Strava, you log in on Strava's own website; Crown Climb never sees your Strava password. To finish the
+  login, Strava sends a one-time code to our server, which exchanges it for your Strava access keys and hands them to your
+  app (kept on the server for at most 10 minutes, until your app collects them). The keys are stored only on your device.
+  When they need renewing, the app asks our server to do it; the server does not keep them. Rides are uploaded from your
+  device directly to Strava, and only when you tap upload. See the
+  <a href="https://www.strava.com/legal/privacy">Strava privacy policy</a>.</p>
 
   <h2>Downloading climbs</h2>
   <p>To keep the app small, most climbs are downloaded the first time you choose them. The files come from GitHub
